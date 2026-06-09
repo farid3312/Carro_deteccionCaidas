@@ -1,8 +1,18 @@
-[ ESP32-S3-CAM ] <=====(WebSocket Duplex)=====> [ Servidor FastAPI ] <=====(WebSockets Separados)=====> [ Frontend Web ]
-||                                               ||                                                    ||
-(Captura RAW)                                    (Inferencia GPU)                                    (Renderizado Canvas)
-||                                               ||                                                    ||
-========(Comandos de Control HTTP Async)========/=====================================================/
+# 🚗 Robótica Edge & IA: Sistema Desacoplado de Telemetría y Detección de Caídas en Tiempo Real
+
+Este proyecto es un ecosistema completo de hardware y software diseñado para la adquisición de telemetría inercial y el monitoreo robótico mediante visión computacional. Su objetivo principal es la **detección autónoma de caídas humanas en tiempo real** utilizando algoritmos de Deep Learning.
+
+Para superar las limitaciones de hardware de los microcontroladores convencionales, el sistema implementa una **Arquitectura de Pipeline Desacoplado**:
+1. **Edge (ESP32-S3-CAM):** Actúa puramente como un nodo de adquisición de alta velocidad, capturando video raw, datos de proximidad (HC-SR04) y matrices inerciales (GY-6500).
+2. **Core (FastAPI & YOLOv8):** Un servidor central recibe el flujo multiplexado por WebSockets y delega el análisis espacial a una GPU (aceleración CUDA), manteniendo tiempos de inferencia por debajo de los 30 ms.
+3. **Frontend (Web Canvas):** Renderiza el streaming de video fluido a ~30 FPS y dibuja dinámicamente las coordenadas de detección (STANDING, SITTING, FALL) sin retrasar el video.
+
+### ✨ Características Principales
+* **Baja Latencia (Zero-Lag):** Gestión de buffers duales (OPI PSRAM) y abandono dinámico de frames saturados (`canSend`).
+* **Telemetría Multiplexada:** Transmisión simultánea de video binario y datos inerciales por I2C a 400kHz.
+* **Control HTTP Persistente:** Manejo del chasis robótico (L293D) mitigando el retraso del Handshake TCP tradicional.
+* **Filtro contra Falsos Positivos:** Validación temporal de 3 fotogramas consecutivos para la emisión de alertas críticas.
+* **Frenado Autónomo de Emergencia:** Decisión de corte de tracción a nivel de hardware nativo para evitar colisiones (≤ 5cm).
 
 Arquitectura:
 <img width="3000" height="2743" alt="image" src="https://github.com/user-attachments/assets/c972f8e1-140f-43fe-8164-68fbfdb7e92a" />
