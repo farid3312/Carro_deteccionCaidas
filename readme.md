@@ -87,7 +87,6 @@ Para la correcta inicialización de la GPU NVIDIA local, es mandatorio asegurar 
 ```bash
 pip install torch torchvision torchaudio --index-url [https://download.pytorch.org/whl/cu118](https://download.pytorch.org/whl/cu118)
 
-Funcionamiento Final :
-
-<img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/02a9242e-5120-4911-b90d-e4eb7192269b" />
-
+```
+Resumen Final :
+<img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/b564cd1b-2614-4065-bd1a-84a465744767" />
