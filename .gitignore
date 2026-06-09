@@ -1,0 +1,30 @@
+# Entornos virtuales de Python
+venv/
+env/
+.env/
+
+# Caché compilada de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Entornos y variables secretas
+.env
+.env.local
+
+# Archivos de configuración de IDEs
+.vscode/
+.idea/
+*.swp
+
+# Archivos de compilación de Arduino/ESP32 (Si guardas el .ino o .cpp aquí)
+build/
+*.bin
+*.elf
+*.hex
+
+# Logs y multimedia de prueba
+*.log
+data/test_images/

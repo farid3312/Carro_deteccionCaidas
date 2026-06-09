@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ESP32-S3 + IA (YOLOv8)</title>
+  
+  <link rel="icon" href="/data/favicon.ico" type="image/x-icon">
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; display: flex; height: 100vh; overflow: hidden; }
+
+    /* Sidebar camara */
+    .sidebar { width: 295px; background: #1e1e1e; padding: 13px; overflow-y: auto; border-right: 1px solid #333; font-size: 13px; flex-shrink: 0; }
+    .sidebar::-webkit-scrollbar { width: 6px; }
+    .sidebar::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+    .sidebar h2 { color: #00bcd4; font-size: 16px; text-align: center; border-bottom: 1px solid #333; padding-bottom: 8px; margin-bottom: 10px; }
+    .sec { color: #777; font-weight: bold; margin: 11px 0 4px; text-transform: uppercase; font-size: 10px; letter-spacing: 1px; }
+    .cg { background: #2a2a2a; padding: 7px; border-radius: 5px; margin-bottom: 7px; }
+    .cg label { display: block; margin-bottom: 3px; color: #bbb; font-size: 12px; }
+    select, input[type="range"] { width: 100%; background: #444; color: #fff; border: none; padding: 4px; border-radius: 3px; outline: none; }
+    .tog { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; font-size: 12px; }
+
+    /* Estilo de animación para alerta */
+    @keyframes parpadeo { from { opacity: 1; } to { opacity: 0.4; } }
+
+    /* Centro: video + panel motores */
+    .center { flex-grow: 1; display: flex; flex-direction: column; overflow: hidden; background: #000; }
+    .video-wrap { flex-grow: 1; position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    #ws-status { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,.7); color: #f90; padding: 4px 9px; font-weight: bold; border-radius: 4px; font-size: 12px; pointer-events: none; z-index: 10; }
+
+    /* Panel motores debajo del video */
+    .motor-panel { background: #1a1a1a; border-top: 2px solid #00bcd4; padding: 10px 18px; display: flex; align-items: center; gap: 22px; flex-wrap: wrap; justify-content: center; }
+    .motor-label { color: #00bcd4; font-size: 12px; font-weight: bold; text-align: center; margin-bottom: 4px; }
+
+    /* ---- D-PAD CARRO (cruz tipo gamepad) ---- */
+    .dpad-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .dpad-wrap .motor-label { color: #00bcd4; font-size: 12px; font-weight: bold; }
+    .dpad { display: grid; grid-template-columns: 52px 52px 52px; grid-template-rows: 52px 52px 52px; gap: 0; }
+    .dpad > * { display: flex; align-items: center; justify-content: center; }
+    .dpad .dc { background: transparent; }
+    .dpad button { background: #2c2c2c; border: none; color: #e0e0e0; font-size: 22px; cursor: pointer; transition: background .1s, transform .08s; user-select: none; -webkit-tap-highlight-color: transparent; }
+    .dpad button:hover { background: #3a3a3a; }
+    .dpad button:active { background: #00bcd4; color: #000; transform: scale(.93); }
+    .d-up { border-radius: 12px 12px 0 0; }
+    .d-left { border-radius: 12px 0 0 12px; }
+    .d-center { background: #5a1a1a !important; border-radius: 50% !important; width: 44px; height: 44px; margin: auto; font-size: 16px !important; }
+    .d-center:active { background: #c0392b !important; }
+    .d-right { border-radius: 0 12px 12px 0; }
+    .d-down { border-radius: 0 0 12px 12px; }
+    .vdiv { width: 1px; background: #333; height: 100%; min-height: 120px; }
+
+    /* Opciones enable + velocidad */
+    .motor-opts { display: flex; flex-direction: column; gap: 8px; font-size: 12px; min-width: 175px; }
+    .en-row { display: flex; justify-content: space-between; align-items: center; color: #ccc; }
+    .en-row span { font-size: 11px; }
+    .spd-wrap label { color: #aaa; font-size: 11px; }
+    .spd-wrap input[type=range] { width: 100%; margin-top: 4px; }
+    .spd-val { color: #00e5ff; font-weight: bold; font-size: 13px; margin-left: 5px; }
+    .btn-stop-all { background: #7a1a1a; color: #fff; border: none; padding: 8px; border-radius: 5px; cursor: pointer; font-size: 13px; width: 100%; margin-top: 2px; }
+    .btn-stop-all:hover { background: #9a2020; }
+    .btn-stop-all:active { background: #c0392b; }
+  </style>
+</head>
+<body>
+
+<div class="sidebar">
+  <h2>Control de Vision</h2>
+
+  <div class="sec">Sensor GY-6500</div>
+  <div class="cg">
+    <div id="gy-data" style="color:#00bcd4;font-family:monospace;font-size:13px;line-height:1.6">Esperando I2C...</div>
+  </div>
+
+  <div class="sec">Sensor de Proximidad</div>
+  <div class="cg">
+    <p>Distancia Frontal: <span id="distancia-val" style="font-size: 18px; font-weight: bold; color: #00e676;">0</span> cm</p>
+    <div id="alerta-choque" style="display: none; background-color: #ff1744; color: white; text-align: center; padding: 10px; font-weight: bold; border-radius: 5px; margin-top: 10px; animation: parpadeo 0.5s infinite alternate; font-size: 11px;">
+      ⚠️ ¡PELIGRO de CHOQUE INMINENTE! ⚠️
+    </div>
+  </div>
+
+  <div class="sec">Basico</div>
+  <div class="cg">
+    <label>Resolucion</label>
+    <select id="framesize" onchange="updateConfig(this)">
+      <option value="13">UXGA 1600x1200</option>
+      <option value="12">SXGA 1280x1024</option>
+      <option value="10">XGA 1024x768</option>
+      <option value="9">SVGA 800x600</option>
+      <option value="8">VGA 640x480</option>
+      <option value="7">HVGA 480x320</option>
+      <option value="6">CIF 400x296</option>
+      <option value="5" selected>QVGA 320x240</option>
+      <option value="4">240x240</option>
+      <option value="3">HQVGA 240x176</option>
+      <option value="2">QCIF 176x144</option>
+      <option value="1">QQVGA 160x120</option>
+      <option value="0">96x96</option>
+    </select>
+  </div>
+  <div class="cg">
+    <label>Calidad JPEG (<span id="quality-val">10</span>)</label>
+    <input type="range" id="quality" min="10" max="63" value="10" onchange="updateConfig(this)" oninput="document.getElementById('quality-val').innerText=this.value">
+  </div>
+
+  <div class="sec">Imagen y Color</div>
+  <div class="cg">
+    <label>Brillo (<span id="brightness-val">0</span>)</label>
+    <input type="range" id="brightness" min="-2" max="2" value="0" onchange="updateConfig(this)" oninput="document.getElementById('brightness-val').innerText=this.value">
+  </div>
+  <div class="cg">
+    <label>Contraste (<span id="contrast-val">0</span>)</label>
+    <input type="range" id="contrast" min="-2" max="2" value="0" onchange="updateConfig(this)" oninput="document.getElementById('contrast-val').innerText=this.value">
+  </div>
+  <div class="cg">
+    <label>Saturacion (<span id="saturation-val">0</span>)</label>
+    <input type="range" id="saturation" min="-2" max="2" value="0" onchange="updateConfig(this)" oninput="document.getElementById('saturation-val').innerText=this.value">
+  </div>
+  <div class="cg">
+    <label>Filtro / Efecto</label>
+    <select id="special_effect" onchange="updateConfig(this)">
+      <option value="0" selected>Normal</option>
+      <option value="1">Negativo</option>
+      <option value="2">Escala de Grises</option>
+      <option value="3">Tinte Rojo</option>
+      <option value="4">Tinte Verde</option>
+      <option value="5">Tinte Azul</option>
+      <option value="6">Sepia</option>
+    </select>
+  </div>
+
+  <div class="sec">Sensores Avanzados</div>
+  <div class="cg">
+    <div class="tog"><label>Exposicion Auto (AEC)</label><input type="checkbox" id="aec" checked onchange="updateConfig(this)"></div>
+    <div class="tog"><label>Ganancia Auto (AGC)</label><input type="checkbox" id="agc" checked onchange="updateConfig(this)"></div>
+    <div class="tog"><label>Balance Blancos (AWB)</label><input type="checkbox" id="awb" checked onchange="updateConfig(this)"></div>
+    <div class="tog"><label>Correccion Lente (LENC)</label><input type="checkbox" id="lenc" checked onchange="updateConfig(this)"></div>
+  </div>
+  <div class="cg">
+    <label>Modo Luz</label>
+    <select id="wb_mode" onchange="updateConfig(this)">
+      <option value="0" selected>Automatico</option>
+      <option value="1">Soleado</option>
+      <option value="2">Nublado</option>
+      <option value="3">Oficina</option>
+      <option value="4">Incandescente</option>
+    </select>
+  </div>
+
+  <div class="sec">Orientacion</div>
+  <div class="cg">
+    <div class="tog"><label>Espejo Horizontal</label><input type="checkbox" id="hmirror" onchange="updateConfig(this)"></div>
+    <div class="tog"><label>Volteo Vertical</label><input type="checkbox" id="vflip" onchange="updateConfig(this)"></div>
+    <div class="tog"><label style="color:#f77">Color Bar (Prueba)</label><input type="checkbox" id="colorbar" onchange="updateConfig(this)"></div>
+  </div>
+</div>
+
+<div class="center">
+  <div class="video-wrap">
+    <div id="ws-status">WS: Conectando...</div>
+
+    <div id="ia-alert" style="display: none; position: absolute; top: 40px; right: 10px; background: rgba(255, 23, 68, 0.95); color: white; padding: 6px 12px; font-weight: bold; border-radius: 4px; font-size: 14px; z-index: 10; animation: parpadeo 0.4s infinite alternate; box-shadow: 0px 0px 10px red;">
+      ⚠️ IA: CAÍDA DETECTADA ⚠️
+    </div>
+    
+    <div id="video-container" style="position: relative; display: inline-block;">
+      <img id="stream-image" alt="Video Raw" style="display: block; max-width: 100%;">
+      <canvas id="overlay-canvas" style="position: absolute; top: 0; left: 0; pointer-events: none;"></canvas>
+    </div>
+
+  </div>
+
+  <div class="motor-panel">
+    <div class="dpad-wrap">
+      <div class="motor-label">Control Carro</div>
+      <div class="dpad">
+        <div class="dc"></div>
+        <button class="d-up" onmousedown="carCmd('F')" onmouseup="carCmd('S')" ontouchstart="carCmd('F')" ontouchend="carCmd('S')" title="Adelante">&#9650;</button>
+        <div class="dc"></div>
+        <button class="d-left" onmousedown="carCmd('L')" onmouseup="carCmd('S')" ontouchstart="carCmd('L')" ontouchend="carCmd('S')" title="Izquierda">&#9664;</button>
+        <button class="d-center" onclick="carCmd('S')" title="Detener">&#9632;</button>
+        <button class="d-right" onmousedown="carCmd('R')" onmouseup="carCmd('S')" ontouchstart="carCmd('R')" ontouchend="carCmd('S')" title="Derecha">&#9654;</button>
+        <div class="dc"></div>
+        <button class="d-down" onmousedown="carCmd('B')" onmouseup="carCmd('S')" ontouchstart="carCmd('B')" ontouchend="carCmd('S')" title="Atras">&#9660;</button>
+        <div class="dc"></div>
+      </div>
+    </div>
+
+    <div class="vdiv"></div>
+
+    <div class="motor-opts">
+      <div class="en-row">
+        <span>Enable A — GPIO 40</span>
+        <input type="checkbox" id="enA" checked onchange="setEnable('A', this.checked)">
+      </div>
+      <div class="en-row">
+        <span>Enable B — GPIO 38</span>
+        <input type="checkbox" id="enB" checked onchange="setEnable('B', this.checked)">
+      </div>
+      <div class="spd-wrap">
+        <label>Velocidad: <span id="spd-val" class="spd-val">50%</span></label>
+        <input type="range" id="speedSlider" min="0" max="255" value="128" oninput="updateSpeed(this.value)" onchange="sendSpeed(this.value)">
+      </div>
+      <button class="btn-stop-all" onclick="carCmd('S')">&#9632; DETENER TODO</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // --- Controles REST API para la ESP32 ---
+  function carCmd(dir) {
+    fetch('/car?d=' + dir).catch(e => console.error(e));
+  }
+
+  function setEnable(m, on) {
+    var v = on ? document.getElementById('speedSlider').value : 0;
+    fetch('/enable?m=' + m + '&v=' + v).catch(e => console.error(e));
+  }
+
+  function updateSpeed(v) {
+    document.getElementById('spd-val').innerText = Math.round(v / 255 * 100) + '%';
+  }
+
+  function sendSpeed(v) {
+    updateSpeed(v);
+    fetch('/speed?v=' + v).catch(e => console.error(e));
+  }
+
+  function updateConfig(el) {
+    var value = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
+    fetch('/control?var=' + el.id + '&val=' + value).catch(e => console.error(e));
+  }
+
+  // --- WebSocket 1: Datos, Alertas y Detecciones IA ---
+  var gatewayDatos = 'ws://' + window.location.host + '/ws_datos';
+  var wsDatos, reconnectDelay = 1000, reconnectTimer = null;
+
+  function initDatosWebSocket() {
+    if (wsDatos && wsDatos.readyState !== WebSocket.CLOSED) return;
+    var st = document.getElementById('ws-status');
+    st.innerText = 'WS: Conectando...';
+    st.style.color = '#f90';
+    
+    wsDatos = new WebSocket(gatewayDatos);
+    
+    wsDatos.onopen = function() {
+      reconnectDelay = 1000;
+      st.innerText = 'WS: Conectado a FastAPI';
+      st.style.color = '#0f0';
+    };
+    
+    wsDatos.onclose = function() {
+      st.innerText = 'WS: Desconectado';
+      st.style.color = '#f00';
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(function() {
+        reconnectDelay = Math.min(reconnectDelay * 2, 16000);
+        initDatosWebSocket();
+      }, reconnectDelay);
+      
+      // Limpiar canvas al desconectar
+      const canvas = document.getElementById('overlay-canvas');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    };
+    
+    wsDatos.onerror = function() {
+      st.innerText = 'WS: Error';
+      st.style.color = '#f00';
+    };
+    
+    wsDatos.onmessage = function(event) {
+      var data = JSON.parse(event.data);
+      
+      // 1. Alerta de Choque (Sensor Ultrasonico)
+      if (data.tipo === 'alerta') {
+         let alerta = document.getElementById('alerta-choque');
+         alerta.innerHTML = data.mensaje;
+         alerta.style.display = 'block';
+         
+         setTimeout(() => { 
+           alerta.style.display = 'none'; 
+           alerta.innerHTML = '⚠️ ¡PELIGRO de CHOQUE INMINENTE! ⚠️';
+         }, 3000);
+      } 
+      // 2. Alerta de Caída (IA Detectada) - Nueva posición visible
+      else if (data.tipo === 'alerta_ia') {
+         let alertaIA = document.getElementById('ia-alert');
+         alertaIA.innerHTML = data.mensaje;
+         alertaIA.style.display = 'block';
+         
+         setTimeout(() => { 
+           alertaIA.style.display = 'none'; 
+         }, 2500);
+      }
+      // 3. Telemetría (Sensores US y GY)
+      else if (data.tipo === 'sensor') {
+         let msg = data.mensaje;
+         
+         if (msg.startsWith("US:")) {
+           let dist = parseInt(msg.split(":")[1]);
+           document.getElementById('distancia-val').innerText = dist;
+           
+           let alerta = document.getElementById('alerta-choque');
+           let distVal = document.getElementById('distancia-val');
+           
+           if (dist <= 5) {
+             alerta.innerHTML = '⚠️ ¡PELIGRO de CHOQUE INMINENTE! ⚠️';
+             alerta.style.display = 'block';
+             distVal.style.color = '#ff1744';
+           } else if (dist <= 20) {
+             alerta.style.display = 'none';
+             distVal.style.color = '#ff9100';
+           } else {
+             alerta.style.display = 'none';
+             distVal.style.color = '#00e676';
+           }
+         } 
+         else {
+           document.getElementById('gy-data').innerHTML = msg;
+         }
+      }
+      // 4. Dibujo de cajas de detección sobre el canvas
+      else if (data.tipo === 'detecciones') {
+         dibujarCajasIA(data.datos.cajas, data.datos.resolucion);
+      }
+    };
+  }
+
+  // --- Función para DIBUJAR las Cajas en el Canvas Transparente ---
+  function dibujarCajasIA(cajas, resolucionOriginal) {
+    const img = document.getElementById('stream-image');
+    const canvas = document.getElementById('overlay-canvas');
+    const ctx = canvas.getContext('2d');
+
+    if (img.width === 0 || img.height === 0) return; 
+    
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (!cajas || cajas.length === 0) return;
+
+    const scaleX = canvas.width / resolucionOriginal.w;
+    const scaleY = canvas.height / resolucionOriginal.h;
+
+    cajas.forEach(caja => {
+      const x = caja.x1 * scaleX;
+      const y = caja.y1 * scaleY;
+      const width = (caja.x2 - caja.x1) * scaleX;
+      const height = (caja.y2 - caja.y1) * scaleY;
+
+      // Normalizamos el texto a mayúsculas para evitar errores de lectura
+      const claseStr = caja.clase.toUpperCase();
+      let colorBox = '#ffffff'; // Blanco por defecto si hay una clase extraña
+
+      // Asignación de los 3 colores específicos
+      if (claseStr === 'FALL') {
+        colorBox = '#ff1744'; // Rojo
+      } else if (claseStr === 'SITTING') {
+        colorBox = '#ff9100'; // Naranja
+      } else if (claseStr === 'STANDING') {
+        colorBox = '#00b0ff'; // Azul brillante
+      }
+      
+      ctx.strokeStyle = colorBox;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x, y, width, height);
+
+      const texto = `${caja.clase} (${Math.round(caja.confianza * 100)}%)`;
+      ctx.font = 'bold 14px Arial';
+      const textWidth = ctx.measureText(texto).width;
+
+      ctx.fillStyle = colorBox;
+      ctx.fillRect(x, Math.max(y - 22, 0), textWidth + 10, 22);
+
+      // Color de texto negro sobre el naranja para que resalte más, blanco en los demás
+      ctx.fillStyle = (claseStr === 'SITTING') ? '#000000' : '#ffffff';
+      ctx.fillText(texto, x + 5, Math.max(y - 6, 16));
+    });
+  }
+
+  // --- WebSocket 2: Video Crudo (Alta velocidad) ---
+  var gatewayVideo = 'ws://' + window.location.host + '/ws_video';
+  var wsVideo;
+
+  function initVideoWebSocket() {
+    wsVideo = new WebSocket(gatewayVideo);
+    wsVideo.binaryType = 'blob'; 
+
+    wsVideo.onmessage = function(event) {
+      if (event.data instanceof Blob) {
+        var url = URL.createObjectURL(event.data);
+        var imgElement = document.getElementById('stream-image');
+        
+        // Revocamos la URL para no saturar memoria RAM del navegador
+        imgElement.onload = () => { URL.revokeObjectURL(url); };
+        imgElement.src = url;
+      }
+    };
+
+    wsVideo.onclose = function() {
+      setTimeout(initVideoWebSocket, 2000);
+    };
+  }
+
+  // Cierre limpio de WebSockets al refrescar o cerrar
+  window.addEventListener('beforeunload', function() { 
+    if (wsDatos) wsDatos.close(); 
+    if (wsVideo) wsVideo.close();
+  });
+
+  window.onload = function() {
+    initDatosWebSocket();
+    initVideoWebSocket();
+  };
+</script>
+</body>
+</html>
