@@ -5,6 +5,8 @@
 ========(Comandos de Control HTTP Async)========/=====================================================/
 
 Arquitectura:
+<img width="3000" height="2743" alt="image" src="https://github.com/user-attachments/assets/c972f8e1-140f-43fe-8164-68fbfdb7e92a" />
+
 
 Configuración Crítica del Compilador de Hardware (Arduino IDE)
 Para alcanzar el rendimiento de transferencia documentado, la placa ESP32-S3 debe compilarse con los siguientes flags de optimización del silicio:
