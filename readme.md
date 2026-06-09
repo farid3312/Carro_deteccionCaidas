@@ -89,4 +89,41 @@ pip install torch torchvision torchaudio --index-url [https://download.pytorch.o
 
 ```
 Resumen Final :
+
 <img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/b564cd1b-2614-4065-bd1a-84a465744767" />
+
+I. Requisitos de Hardware (Vehículo Autónomo / Edge)ESP32-S3-CAM:
+
+Microcontrolador principal. Debe tener soporte para memoria OPI PSRAM habilitado para manejar los búferes de video duales.
+
+Módulo GY-6500 (MPU6500): Sensor inercial de 6 ejes (Giroscopio y Acelerómetro) para la telemetría, conectado vía I2C.
+
+Módulo HC-SR04: Sensor ultrasónico para el sistema de evasión de colisiones y freno autónomo de emergencia.
+
+Driver L293D (Puente H): Controlador para la tracción de los motores.
+
+Chasis y Motores DC: Base robótica móvil, incluyendo mínimo dos motores DC con reductores y sus respectivas ruedas.
+
+Fuente de Alimentación: Batería LiPo (ej. 2S 7.4V) para alimentar los motores a través del L293D, combinada con un módulo reductor de voltaje (Buck Converter) configurado a 5V para alimentar la ESP32 de forma estable.
+
+Cables y Ensamblaje: Protoboard o placa PCB pre-perforada, cables jumper (macho-macho, macho-hembra).
+
+II. Requisitos de Hardware
+
+(Estación Base / Servidor)Procesador (CPU): Intel Core i5 / AMD Ryzen 5 o superior.
+
+Tarjeta Gráfica (GPU): Tarjeta gráfica dedicada NVIDIA con soporte nativo para arquitectura CUDA (ej. GTX 1650, RTX serie 3000/4000).Es obligatoria para mantener el tiempo de inferencia de YOLOv8 por debajo de los 30ms.
+
+Red Local: Un enrutador Wi-Fi (idealmente de banda 5GHz o 2.4GHz descongestionada) para alojar a la ESP32 y al servidor en la misma subred estática (192.168.20.x).
+
+III. Requisitos de Software y DependenciasEntorno de Microcontrolador: Arduino IDE con el paquete de placas esp32 de Espressif instalado.
+
+Entorno Servidor: Python $\geq$ 3.10.
+
+Dependencias de Python (Servidor):fastapiuvicornwebsocketshttpxjinja2ultralytics (YOLOv8)numpyopencv-pythonMotor Matemático GPU: PyTorch configurado específicamente para compilar con la tarjeta gráfica:pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+
+
+
+
+
