@@ -133,7 +133,5 @@ Entorno Servidor: Python $\geq$ 3.10.
 Dependencias de Python (Servidor):fastapiuvicornwebsocketshttpxjinja2ultralytics (YOLOv8)numpyopencv-pythonMotor Matemático GPU: PyTorch configurado específicamente para compilar con la tarjeta gráfica:pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
 
-
-
-
+#**NOTA Importante:para un mejor modelo se puede entrenar desde google codelab : https://colab.research.google.com/drive/1xshCjcU3QqDUflV2GactDpQvBqC4-lkh?usp=sharing, subiendo el dataset y ejecutando los codigos**
 
