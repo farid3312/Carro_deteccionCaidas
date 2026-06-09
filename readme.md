@@ -86,3 +86,8 @@ Consulte las dependencias completas del entorno en el archivo adjunto `requireme
 Para la correcta inicialización de la GPU NVIDIA local, es mandatorio asegurar la presencia de los controladores del compilador CUDA versión 11.8 o superior, acompañados de los binarios distribuidos de PyTorch con soporte de aceleración nativa:
 ```bash
 pip install torch torchvision torchaudio --index-url [https://download.pytorch.org/whl/cu118](https://download.pytorch.org/whl/cu118)
+
+Funcionamiento Final :
+
+<img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/02a9242e-5120-4911-b90d-e4eb7192269b" />
+
