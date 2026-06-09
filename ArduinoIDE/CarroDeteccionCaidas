@@ -1,0 +1,274 @@
+#include "esp_camera.h"
+#include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <Wire.h>
+
+// ===== RED =====
+const char* ssid     = "Tu_Wifi_Aquí";
+const char* password = "Tu_contraseña_Aquí";
+
+// ===== CONFIGURACION IP FIJA =====
+IPAddress local_IP(192, 168, 0, 100);
+IPAddress gateway(192, 168, 0, 1);
+IPAddress subnet(255, 255, 255, 0);
+
+// ===== PINES CAMARA (ESP32-S3 WROOM) =====
+#define PWDN_GPIO_NUM  -1
+#define RESET_GPIO_NUM -1
+#define XCLK_GPIO_NUM  15
+#define SIOD_GPIO_NUM  4
+#define SIOC_GPIO_NUM  5
+#define Y9_GPIO_NUM    16
+#define Y8_GPIO_NUM    17
+#define Y7_GPIO_NUM    18
+#define Y6_GPIO_NUM    12
+#define Y5_GPIO_NUM    10
+#define Y4_GPIO_NUM    8
+#define Y3_GPIO_NUM    9
+#define Y2_GPIO_NUM    11
+#define VSYNC_GPIO_NUM 6
+#define HREF_GPIO_NUM  7
+#define PCLK_GPIO_NUM  13
+
+// ===== PINES L293D =====
+const int motorPin1 = 1;  
+const int motorPin2 = 42; 
+const int enAPin    = 2;  
+const int motorPin3 = 14; 
+const int motorPin4 = 41; 
+const int enBPin    = 38; 
+
+const int pwmFreq = 1000;
+const int pwmRes  = 8;
+int motorSpeed = 128;
+
+// ===== PINES Y VARIABLES HC-SR04 =====
+const int trigPin = 48;
+const int echoPin = 45;
+long duracion;
+int distancia = 0;
+unsigned long tiempoAnteriorUltrasonico = 0;
+unsigned long tiempoAnteriorEnvioUS = 0;
+
+// ===== GY-6500 I2C =====
+const int MPU_ADDR = 0x68;
+const int SDA_PIN  = 21;   
+const int SCL_PIN  = 47;   
+int16_t AcX, AcY, AcZ, Tmp, GyX, GyY, GyZ;
+unsigned long tiempoAnteriorGY = 0;
+
+// ===== SERVIDOR / WEBSOCKET =====
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
+uint32_t activeClientId = 0;
+unsigned long tiempoAnteriorCam = 0;
+
+// ===== FUNCIONES MOTOR =====
+void stopMotors() {
+  digitalWrite(motorPin1, LOW); 
+  digitalWrite(motorPin2, LOW);
+  digitalWrite(motorPin3, LOW); 
+  digitalWrite(motorPin4, LOW);
+  ledcWrite(enAPin, 0);
+  ledcWrite(enBPin, 0);
+}
+
+void carCmd(char dir) {
+  switch (dir) {
+    case 'F':
+      digitalWrite(motorPin1, LOW);  digitalWrite(motorPin2, HIGH);
+      digitalWrite(motorPin3, HIGH); digitalWrite(motorPin4, LOW);
+      ledcWrite(enAPin, motorSpeed); ledcWrite(enBPin, motorSpeed); break;
+    case 'B':
+      digitalWrite(motorPin1, HIGH); digitalWrite(motorPin2, LOW);
+      digitalWrite(motorPin3, LOW);  digitalWrite(motorPin4, HIGH);
+      ledcWrite(enAPin, motorSpeed); ledcWrite(enBPin, motorSpeed); break;
+    case 'L':
+      digitalWrite(motorPin1, HIGH); digitalWrite(motorPin2, LOW);
+      digitalWrite(motorPin3, HIGH); digitalWrite(motorPin4, LOW);
+      ledcWrite(enAPin, motorSpeed); ledcWrite(enBPin, motorSpeed); break;
+    case 'R':
+      digitalWrite(motorPin1, LOW);  digitalWrite(motorPin2, HIGH);
+      digitalWrite(motorPin3, LOW);  digitalWrite(motorPin4, HIGH);
+      ledcWrite(enAPin, motorSpeed); ledcWrite(enBPin, motorSpeed); break;
+    case 'S':
+    default:
+      stopMotors(); break;
+  }
+}
+
+// ===== FUNCION HC-SR04 =====
+void leerUltrasonico() {
+  digitalWrite(trigPin, LOW); delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH); delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  
+  duracion = pulseIn(echoPin, HIGH, 20000); // Timeout a 20ms para no bloquear
+  if (duracion == 0) distancia = 999;
+  else distancia = duracion * 0.0343 / 2;
+  
+}
+
+// ===== EVENTOS WEBSOCKET =====
+void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+  if (type == WS_EVT_CONNECT) {
+    if (activeClientId != 0 && activeClientId != client->id()) {
+      AsyncWebSocketClient* old = server->client(activeClientId);
+      if (old) old->close();
+    }
+    activeClientId = client->id();
+  } else if (type == WS_EVT_DISCONNECT || type == WS_EVT_ERROR) {
+    if (activeClientId == client->id()) activeClientId = 0;
+  }
+}
+
+// ===== RUTAS HTTP =====
+void setupRoutes() {
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(200, "text/plain", "ESP32-S3 Cam activo. Conectate via FastAPI.");
+  });
+  
+  server.on("/car", HTTP_GET, [](AsyncWebServerRequest *request){
+    if (request->hasParam("d")) carCmd(request->getParam("d")->value()[0]);
+    request->send(200, "text/plain", "OK");
+  });
+  
+  server.on("/speed", HTTP_GET, [](AsyncWebServerRequest *request){
+    if (request->hasParam("v")) motorSpeed = request->getParam("v")->value().toInt();
+    request->send(200, "text/plain", "OK");
+  });
+  
+  server.on("/enable", HTTP_GET, [](AsyncWebServerRequest *request){
+    if (request->hasParam("m") && request->hasParam("v")) {
+      char m = request->getParam("m")->value()[0];
+      int v = request->getParam("v")->value().toInt();
+      if (m == 'A') ledcWrite(enAPin, v);
+      else if (m == 'B') ledcWrite(enBPin, v);
+    }
+    request->send(200, "text/plain", "OK");
+  });
+  
+  server.on("/control", HTTP_GET, [](AsyncWebServerRequest *request){
+    if (request->hasParam("var") && request->hasParam("val")) {
+      String variable = request->getParam("var")->value();
+      int val = request->getParam("val")->value().toInt();
+      sensor_t *s = esp_camera_sensor_get();
+      if (s != NULL) {
+        if (variable == "framesize") s->set_framesize(s, (framesize_t)val);
+        else if (variable == "quality") s->set_quality(s, val);
+        else if (variable == "brightness") s->set_brightness(s, val);
+        else if (variable == "contrast") s->set_contrast(s, val);
+        else if (variable == "saturation") s->set_saturation(s, val);
+        else if (variable == "special_effect") s->set_special_effect(s, val);
+      }
+    }
+    request->send(200, "text/plain", "OK");
+  });
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(motorPin1, OUTPUT); pinMode(motorPin2, OUTPUT);
+  pinMode(motorPin3, OUTPUT); pinMode(motorPin4, OUTPUT);
+  ledcAttach(enAPin, pwmFreq, pwmRes);
+  ledcAttach(enBPin, pwmFreq, pwmRes);
+  stopMotors();
+
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.setClock(400000); // I2C a alta velocidad (400kHz)
+  Wire.beginTransmission(MPU_ADDR); Wire.write(0x6B); Wire.write(0); Wire.endTransmission(true);
+
+  camera_config_t config;
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer = LEDC_TIMER_0;
+  config.pin_d0 = Y2_GPIO_NUM; config.pin_d1 = Y3_GPIO_NUM;
+  config.pin_d2 = Y4_GPIO_NUM; config.pin_d3 = Y5_GPIO_NUM;
+  config.pin_d4 = Y6_GPIO_NUM; config.pin_d5 = Y7_GPIO_NUM;
+  config.pin_d6 = Y8_GPIO_NUM; config.pin_d7 = Y9_GPIO_NUM;
+  config.pin_xclk = XCLK_GPIO_NUM; config.pin_pclk = PCLK_GPIO_NUM;
+  config.pin_vsync = VSYNC_GPIO_NUM; config.pin_href = HREF_GPIO_NUM;
+  config.pin_sccb_sda = SIOD_GPIO_NUM; config.pin_sccb_scl = SIOC_GPIO_NUM;
+  config.pin_pwdn = PWDN_GPIO_NUM; config.pin_reset = RESET_GPIO_NUM;
+  config.xclk_freq_hz = 20000000;
+  config.pixel_format = PIXFORMAT_JPEG;
+  
+  // OPTIMIZACIONES DE VELOCIDAD
+  config.frame_size = FRAMESIZE_QVGA; // 320x240 nativo
+  config.jpeg_quality = 10;           // Baja compresión
+  config.fb_count = 2;
+  
+  esp_camera_init(&config);
+
+  Serial.println("Conectando WiFi...");
+  WiFi.config(local_IP, gateway, subnet);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
+  Serial.println("\nWiFi Conectado!");
+
+  ws.onEvent(onWsEvent);
+  server.addHandler(&ws);
+  setupRoutes();
+  server.begin();
+}
+
+void loop() {
+  unsigned long now = millis();
+  
+  // 1. LECTURA SENSOR ULTRASONICO (Cada 60ms)
+  if (now - tiempoAnteriorUltrasonico >= 60) {
+    tiempoAnteriorUltrasonico = now;
+    leerUltrasonico();
+  }
+  
+  if (activeClientId != 0) {
+    AsyncWebSocketClient* client = ws.client(activeClientId);
+    if (client) {
+      
+      // 2. TRANSMISION DE VIDEO (Aproximadamente 30 FPS)
+      if (now - tiempoAnteriorCam >= 33) {
+        tiempoAnteriorCam = now;
+        
+        // --- CONTROL DE LATENCIA CRITICO ---
+        // Si el buffer no esta saturado, tomamos y enviamos la foto
+        if (client->canSend()) {
+          camera_fb_t * fb = esp_camera_fb_get();
+          if (fb) {
+            client->binary(fb->buf, fb->len);
+            esp_camera_fb_return(fb);
+          }
+        }
+      }
+      
+      // 3. ENVIO DATOS ULTRASONICO (Cada 100ms)
+      if (now - tiempoAnteriorEnvioUS >= 100) {
+        tiempoAnteriorEnvioUS = now;
+        if (client->canSend()) {
+          client->text("US:" + String(distancia));
+        }
+      }
+      
+      // 4. ENVIO DATOS GIROSCOPIO (Cada 105ms para evitar colision con el US)
+      if (now - tiempoAnteriorGY >= 105) {
+        tiempoAnteriorGY = now;
+        Wire.beginTransmission(MPU_ADDR); Wire.write(0x3B); Wire.endTransmission(false);
+        Wire.requestFrom(MPU_ADDR, 14, true);
+        if (Wire.available() == 14) {
+          AcX=Wire.read()<<8|Wire.read(); AcY=Wire.read()<<8|Wire.read(); AcZ=Wire.read()<<8|Wire.read();
+          Tmp=Wire.read()<<8|Wire.read();
+          GyX=Wire.read()<<8|Wire.read(); GyY=Wire.read()<<8|Wire.read(); GyZ=Wire.read()<<8|Wire.read();
+          
+          if (client->canSend()) {
+            String info = "Ax:"+String(AcX)+" Ay:"+String(AcY)+" Az:"+String(AcZ)+"<br>Gx:"+String(GyX)+" Gy:"+String(GyY)+" Gz:"+String(GyZ);
+            client->text(info);
+          }
+        }
+      }
+    }
+  }
+  ws.cleanupClients();
+}
